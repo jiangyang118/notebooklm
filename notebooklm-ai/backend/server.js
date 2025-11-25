@@ -31,6 +31,7 @@ import docRoutes from "./routes/docRoutes.js";
 import embedRoutes from "./routes/embedRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
 import generateRoutes from "./routes/generateRoutes.js";
+import { initVectorDB } from "./vectordb/index.js";
 
 dotenv.config();
 
@@ -87,5 +88,6 @@ app.listen(PORT, () => {
   console.log(`\uD83D\uDCE1 Port: ${PORT}`);
   console.log("\uD83E\uDDE9 Loaded routes: /api/chat, /api/docs, /api/embed, /api/search, /api/generate");
   console.log(`\uD83D\uDEE0  Environment: ${process.env.NODE_ENV || "development"}`);
+  // Initialize vector DB in background (non-fatal on failure)
+  initVectorDB().catch((e) => console.warn("[VectorDB init]", e?.message || e));
 });
-
