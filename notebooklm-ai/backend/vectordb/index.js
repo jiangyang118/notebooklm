@@ -9,7 +9,7 @@
  * npm install qdrant-node
  */
 
-const DEFAULT_DB = (process.env.VECTOR_DB || "pgvector").toLowerCase();
+const DEFAULT_DB = (process.env.VECTOR_DB || "chroma").toLowerCase();
 let clientMod;
 
 async function loadClient() {
@@ -44,4 +44,3 @@ export async function searchEmbedding(embedding, top_k = 5) {
   if (mod?.search) return mod.search(embedding, top_k);
   return [];
 }
-

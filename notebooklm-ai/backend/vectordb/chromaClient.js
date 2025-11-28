@@ -11,7 +11,7 @@
  *  - Top-K 搜索
  */
 
-import { ChromaClient, OpenAIEmbeddingFunction } from "chromadb";
+import { ChromaClient } from "chromadb";
 
 let client;
 let collection;
@@ -19,10 +19,10 @@ const COLLECTION = "embeddings";
 
 export async function init() {
   try {
-    const path = process.env.CHROMA_DIR || undefined; // undefined → in-memory
-    client = new ChromaClient({ path });
+    const url = process.env.CHROMA_URL || "http://localhost:8000";
+    client = new ChromaClient({ path: url });
     collection = await client.getOrCreateCollection({ name: COLLECTION });
-    console.debug("[Chroma] ready at", path || "memory");
+    console.debug("[Chroma] ready at", url);
   } catch (err) {
     console.error("[Chroma Error][init]", err);
     throw err;
@@ -66,4 +66,3 @@ export async function search(queryEmbedding, top_k = 5) {
     return [];
   }
 }
-

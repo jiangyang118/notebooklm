@@ -14,7 +14,7 @@ const config = {
     type: (process.env.DB_TYPE || "sqlite").toLowerCase(), // sqlite | postgres
     url: process.env.DATABASE_URL || "",
   },
-  vectorDB: (process.env.VECTOR_DB || "pgvector").toLowerCase(), // pgvector | milvus | chroma | qdrant
+  vectorDB: (process.env.VECTOR_DB || "chroma").toLowerCase(), // pgvector | milvus | chroma | qdrant
   openai: {
     apiKey: process.env.OPENAI_API_KEY || "",
     baseURL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
@@ -25,4 +25,3 @@ const config = {
 };
 
 export default config;
-

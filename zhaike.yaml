@@ -1,0 +1,1882 @@
+openapi: 3.1.0
+info:
+  title: 宅客智能设备开放平台 API（集团账号版）
+  version: "1.0.0"
+  description: |
+    宅客科技智能体测仪 & 心率监测系统开放接口（集团账号版）OpenAPI 3.1 规范。
+
+    - 适用设备：成人智能体测仪 M3/M1、儿童体测仪 K2、全功能体测仪 A5、体考产品 T1/T2、心率监测系统 H1 等。
+    - 支持对接模式：
+      - 被动查询：通过 HTTP 接口按条件查询体测数据；
+      - 主动回调：宅客平台在产生体测数据时，向甲方配置的公网回调地址推送数据（POST）。
+    - 本文档基于原始接口文档整理，尽可能保留字段含义并补充说明，便于集成 Swagger / Apifox / Postman 等工具使用。  [oai_citation:0‡集团账号版.docx](sediment://file_00000000f0fc71fdb71ab54c82497b19)
+
+  contact:
+    name: 宅客科技开放平台
+    url: https://www.zhaiker.cn/
+    email: support@zhaiker.cn
+
+servers:
+  - url: https://www.zhaiker.cn
+    description: 生产环境
+
+tags:
+  - name: Auth
+    description: 账户 & 门店 API 密钥获取
+  - name: Gyms
+    description: 集团账号下门店管理与查询
+  - name: Exams
+    description: 体测记录查询与统计
+  - name: ExamDetail
+    description: 单条体测详情与标准参数
+  - name: Files
+    description: 图片与多媒体资源访问
+  - name: Devices
+    description: 体测设备远程控制与状态
+  - name: GymExtend
+    description: 体考附加项（项目）管理
+  - name: Reports
+    description: H5 / 小程序体测报告展示
+  - name: QR
+    description: 扫码体测二维码载荷规则
+  - name: Callbacks
+    description: 体测数据回调（宅客平台 → 甲方）
+
+paths:
+
+  # ============================================================
+  # 模块一：鉴权 / API Key
+  # ============================================================
+
+  /open/OpenAPI!apiKey.m:
+    post:
+      tags: [Auth]
+      summary: 获取集团账号 API Key（集团管理账号）
+      description: |
+        使用集团管理后台账户（管理后台系统账号）和密码获取对应的集团级 `apiKey` 与 `managerId`。
+
+        - 适用账号：在宅客管理后台系统中注册的 **集团管理账号**；
+        - 获取到的 `apiKey` 与 `managerId` 可用于：
+          - 查询该账号已授权的门店列表；
+          - 跨门店查询体测数据。
+      operationId: getGroupApiKey
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - account
+                - password
+              properties:
+                account:
+                  type: string
+                  description: |
+                    管理后台账户名（集团账号），由销售经理在宅客管理后台注册并开通权限。
+                password:
+                  type: string
+                  format: password
+                  description: |
+                    登录密码的 **MD5 32 位小写** 摘要值。  
+                    - 明文密码需要先进行 MD5(32位小写) 加密后再提交；
+                    - 若未加密将会返回“密码错误”错误码。
+      responses:
+        '200':
+          description: 成功获取集团账号的 API Key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupApiKeyResponse'
+        '400':
+          description: 请求参数错误（缺少 account 或 password）
+        '500':
+          description: 服务器内部错误
+
+  /OpenAPI!apiKey.msg:
+    post:
+      tags: [Auth]
+      summary: 获取单门店账号 API Key（门店独立账号）
+      description: |
+        使用 **单门店账号** 和密码，获取该门店专用的 `apiKey` 与门店 `id`。
+
+        适用场景：
+        - 针对单个门店进行体测记录查询；
+        - 配合小程序插件 / H5 报告等，只针对某个门店。
+
+        注意：此接口与集团 `apiKey` 获取接口 `/open/OpenAPI!apiKey.m` 不同。
+      operationId: getGymApiKey
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - account
+                - password
+              properties:
+                account:
+                  type: string
+                  description: |
+                    门店登录账户名（即门店在宅客管理后台的登录名）。
+                password:
+                  type: string
+                  format: password
+                  description: |
+                    门店账号密码的 **MD5 32 位小写** 摘要值。
+      responses:
+        '200':
+          description: 成功获取门店 API Key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GymApiKeyResponse'
+        '400':
+          description: 请求参数错误（缺少 account 或 password）
+        '500':
+          description: 服务器内部错误
+
+  # ============================================================
+  # 模块二：门店管理（集团账号已授权门店）
+  # ============================================================
+
+  /open/OpenAPI!getGyms.m:
+    get:
+      tags: [Gyms]
+      summary: 获取集团账号已授权门店列表
+      description: |
+        基于集团级 `apiKey` 和 `managerId` 获取该账号已授权的门店列表。
+
+        - 支持根据门店名称模糊搜索；
+        - 支持分页；
+        - 小程序调用时需带上 Cookie 信息。
+      operationId: getGyms
+      parameters:
+        - name: apiKey
+          in: query
+          required: true
+          description: |
+            集团账号对应的 API Key。
+
+            - GET 请求时需要进行 URL 编码；
+            - 来源于 `/open/OpenAPI!apiKey.m`。
+          schema:
+            type: string
+        - name: managerId
+          in: query
+          required: true
+          description: |
+            集团管理员编号，用于标识当前集团账号。  
+            来源：`/open/OpenAPI!apiKey.m` 返回字段 `managerId`。
+          schema:
+            type: string
+        - name: gymName
+          in: query
+          required: false
+          description: |
+            根据门店名称进行模糊搜索，支持部分匹配。
+          schema:
+            type: string
+        - name: pageIndex
+          in: query
+          required: false
+          description: 分页页码（从 0 开始），默认 0。
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: pageSize
+          in: query
+          required: false
+          description: |
+            分页大小，默认 30 条记录，最大建议不超过 1000。
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 30
+      responses:
+        '200':
+          description: 成功返回门店列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GymListResponse'
+        '401':
+          description: apiKey 或 managerId 无效
+        '500':
+          description: 服务器内部错误
+
+  # ============================================================
+  # 模块三：体测记录列表与统计
+  # ============================================================
+
+  /open/OpenAPI!getExams.m:
+    get:
+      tags: [Exams]
+      summary: 查询体测记录列表
+      description: |
+        按条件查询体测记录列表，支持按门店、姓名、手机号、性别、年龄区间、时间区间、分页等维度筛选。
+
+        - 支持集团查询（不传 `gymId`，查询当前账号所有已授权门店体测记录）；
+        - 支持指定门店查询（传入 `gymId`）；
+        - 返回体测记录基础信息及主要体测指标。
+
+        注意：小程序调用时需带上 Cookie 信息。
+      operationId: getExams
+      parameters:
+        - name: apiKey
+          in: query
+          required: true
+          description: |
+            API Key（集团或门店）。  
+            - GET 请求需进行 URL 编码；
+            - 可来自集团级接口或门店级接口。
+          schema:
+            type: string
+        - name: gymId
+          in: query
+          required: false
+          description: |
+            门店编号：  
+            - 为空时：查询当前账号所有已授权门店的体测记录；  
+            - 不为空时：只查询指定门店体测记录。
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: false
+          description: 根据姓名模糊搜索。
+          schema:
+            type: string
+        - name: phone
+          in: query
+          required: false
+          description: 根据电话号码搜索（可为手机号、学号或自定义编号）。
+          schema:
+            type: string
+        - name: sex
+          in: query
+          required: false
+          description: |
+            根据性别查询：  
+            - `M`：男  
+            - `F`：女
+          schema:
+            type: string
+            enum: [M, F]
+        - name: ageStart
+          in: query
+          required: false
+          description: |
+            年龄区间起始值。  
+            - 必须与 `ageEnd` 成对出现，否则条件不生效。
+          schema:
+            type: integer
+            minimum: 0
+        - name: ageEnd
+          in: query
+          required: false
+          description: |
+            年龄区间结束值。  
+            - 必须与 `ageStart` 成对出现，否则条件不生效。
+          schema:
+            type: integer
+            minimum: 0
+        - name: timeStart
+          in: query
+          required: false
+          description: |
+            时间段开始时间，支持多种格式，例如：  
+            - `yyyy-MM-dd HH:mm:ss`  
+            - `yyyy-MM-dd`  
+            - `yyyy/MM/dd HH:mm:ss`  
+            - `yyyy/MM/dd`  
+            - `HH:mm:ss`  
+            - `yyyy年MM月dd日 HH时mm分ss秒`  
+            - `yyyy年MM月dd日`  
+
+            必须与 `timeEnd` 成对出现，否则不生效。
+          schema:
+            type: string
+        - name: timeEnd
+          in: query
+          required: false
+          description: |
+            时间段结束时间，格式与 `timeStart` 相同。  
+            - 必须与 `timeStart` 成对出现；
+            - 用于限定体测记录时间区间。
+          schema:
+            type: string
+        - name: pageIndex
+          in: query
+          required: false
+          description: 分页页码，默认 0。
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: pageSize
+          in: query
+          required: false
+          description: 分页大小，默认 30 条。
+          schema:
+            type: integer
+            minimum: 1
+            default: 30
+      responses:
+        '200':
+          description: 返回体测记录列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamListResponse'
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  /open/OpenAPI!getExamsCount.m:
+    get:
+      tags: [Exams]
+      summary: 获取体测记录数量
+      description: |
+        根据与 `/open/OpenAPI!getExams.m` 相同的筛选条件，返回符合条件的体测记录数量。
+
+        适用场景：
+        - 统计报表；
+        - 分页前先获取总数。
+      operationId: getExamsCount
+      parameters:
+        - name: apiKey
+          in: query
+          required: true
+          description: API Key，GET 请求需 URL 编码。
+          schema:
+            type: string
+        - name: gymId
+          in: query
+          required: false
+          description: 门店编号，规则同 `getExams`。
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: false
+          description: 根据姓名搜索。
+          schema:
+            type: string
+        - name: phone
+          in: query
+          required: false
+          description: 根据电话搜索。
+          schema:
+            type: string
+        - name: sex
+          in: query
+          required: false
+          description: 性别：`M` 男，`F` 女。
+          schema:
+            type: string
+            enum: [M, F]
+        - name: ageStart
+          in: query
+          required: false
+          description: 年龄区间开始值。
+          schema:
+            type: integer
+        - name: ageEnd
+          in: query
+          required: false
+          description: 年龄区间结束值。
+          schema:
+            type: integer
+        - name: timeStart
+          in: query
+          required: false
+          description: 时间段开始时间，格式同 `getExams`。
+          schema:
+            type: string
+        - name: timeEnd
+          in: query
+          required: false
+          description: 时间段结束时间，格式同 `getExams`。
+          schema:
+            type: string
+        - name: pageIndex
+          in: query
+          required: false
+          description: 分页页码（保留，与列表接口保持一致）。
+          schema:
+            type: integer
+            default: 0
+        - name: pageSize
+          in: query
+          required: false
+          description: 分页大小（保留，与列表接口保持一致）。
+          schema:
+            type: integer
+            default: 30
+      responses:
+        '200':
+          description: 返回体测记录数量
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamsCountResponse'
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  # ============================================================
+  # 模块四：单条体测详情 & 标准
+  # ============================================================
+
+  /open/OpenAPI!getExamById.m:
+    get:
+      tags: [ExamDetail]
+      summary: 根据 ID 获取体测详情及标准
+      description: |
+        根据体测记录 ID 获取该次体测的完整数据与标准参照值，包括：
+
+        - 主要体测指标（体重、身高、BMI、体脂、水分等）；
+        - 形体体态检测数据（可选）；
+        - 身体围度维度数据（可选）；
+        - 8 电极设备扩展数据（可选）；
+        - 标准参照区间（BMI、骨量、内脏脂肪、基础代谢、皮下脂肪、水分、蛋白质、肌肉、体重、身高等）；
+        - 儿童身高体重成长趋势表（年龄 < 18 时）。
+      operationId: getExamById
+      parameters:
+        - name: apiKey
+          in: query
+          required: true
+          description: API Key，GET 请求需 URL 编码。
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          description: 体测记录唯一 ID（`getExams` 返回的 `id` 字段）。
+          schema:
+            type: string
+        - name: gymId
+          in: query
+          required: true
+          description: 门店编号。
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 返回体测详情及标准
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamDetailResponse'
+        '401':
+          description: apiKey 无效
+        '404':
+          description: 未找到对应体测记录
+        '500':
+          description: 服务器内部错误
+
+  # ============================================================
+  # 模块五：图片文件访问
+  # ============================================================
+
+  /file/FileAction!loadFile.msg:
+    get:
+      tags: [Files]
+      summary: 体测图片 / 视频文件访问
+      description: |
+        根据文件路径 `key` 访问图片或视频资源。  
+
+        - 常用于访问体态照片（正面 / 侧面）、附加项视频等；
+        - 接口返回为实际文件内容或 HTTP 重定向到文件地址。
+      operationId: loadFile
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: |
+            文件路径（资源标识），来源于体测数据或附加项返回字段，例如：  
+            - `2019-10-15/1571108144859500400.jpg`
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功返回图片或文件内容
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: 文件不存在
+        '500':
+          description: 服务器内部错误
+
+  # ============================================================
+  # 模块六：扫码体测 – 设备控制
+  # ============================================================
+
+  /open/OpenAPI!startExam.m:
+    post:
+      tags: [Devices]
+      summary: 云端启动设备开始体测（扫码体测模式）
+      description: |
+        在设备设置为“扫码付费模式”时，通过云端接口通知设备启动一次体测。
+
+        - 需先在设备管理平台中将服务类型设置为扫码体测；
+        - 一般由业务系统在用户扫码后调用，以实现“云端选人 → 设备体测”。
+
+        若设备未配置为扫码付费模式，会返回“设备错误”。
+      operationId: startExam
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - apiKey
+                - gymId
+                - device
+                - customerId
+                - name
+                - sex
+                - age
+                - phone
+              properties:
+                apiKey:
+                  type: string
+                  description: API Key，URL 编码。
+                gymId:
+                  type: string
+                  description: 门店编号。
+                device:
+                  type: string
+                  description: |
+                    设备序列号（在体测仪设置 → 账户信息中可查看），例如 `K2@ec2e980fed53`。
+                customerId:
+                  type: string
+                  description: |
+                    客户唯一 ID（由甲方系统定义），用于与本地用户体系关联。
+                name:
+                  type: string
+                  description: 体测人姓名。
+                sex:
+                  type: string
+                  description: 性别：`M` 男，`F` 女。
+                  enum: [M, F]
+                age:
+                  type: integer
+                  description: 体测人年龄（岁）。
+                height:
+                  type: number
+                  format: float
+                  description: |
+                    身高（厘米）。  
+                    对于 **无身高测量** 功能的设备，此字段必须填写。
+                phone:
+                  type: string
+                  description: 用户电话号码或其它编号（视业务需要）。
+      responses:
+        '200':
+          description: 启动体测命令下发成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericOperationResponse'
+        '400':
+          description: 参数错误或设备模式错误
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  /open/OpenAPI!cancelExam.m:
+    post:
+      tags: [Devices]
+      summary: 取消云端启动体测，重置设备状态
+      description: |
+        用于在扫码体测模式下，撤销之前通过 `startExam` 下发的体测指令，将设备状态重置为“就绪”。
+
+        - 同样要求设备配置为扫码付费模式；
+        - 适用于用户取消、支付失败等场景。
+      operationId: cancelExam
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - apiKey
+                - device
+                - gymId
+              properties:
+                apiKey:
+                  type: string
+                  description: API Key。
+                device:
+                  type: string
+                  description: 设备序列号。
+                gymId:
+                  type: string
+                  description: 门店编号。
+      responses:
+        '200':
+          description: 取消成功，设备状态已重置
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericOperationResponse'
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  /open/OpenAPI!getExamState.m:
+    get:
+      tags: [Devices]
+      summary: 获取体测仪运行状态
+      description: |
+        查询指定体测设备当前运行状态，包括：
+
+        - 在线状态（在线 / 掉线）；
+        - 服务模式（扫码付费 / 普通模式）；
+        - 当前业务状态（空闲、准备就绪、待付款、故障等）；
+        - 使用价格等。
+      operationId: getExamState
+      parameters:
+        - name: apiKey
+          in: query
+          required: true
+          description: API Key。
+          schema:
+            type: string
+        - name: device
+          in: query
+          required: true
+          description: 设备序列号。
+          schema:
+            type: string
+        - name: gymId
+          in: query
+          required: true
+          description: 门店编号。
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 返回设备当前状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceStateResponse'
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  # ============================================================
+  # 模块七：体考附加项管理
+  # ============================================================
+
+  /OpenAPI!getGymExtend.msg:
+    get:
+      tags: [GymExtend]
+      summary: 获取当前门店所有可用附加项
+      description: |
+        查询指定门店下所有可用的“附加项”体测项目，例如：十米折返跑、坐位体前屈等。
+
+        - 附加项通常用于体考项目；
+        - 每个附加项包含适用年龄、适用性别、单位、等级描述等。
+      operationId: getGymExtend
+      parameters:
+        - name: apiKey
+          in: query
+          required: true
+          description: 门店 API Key。
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 返回附加项列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GymExtendListResponse'
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  /OpenAPI!addExItem.msg:
+    post:
+      tags: [GymExtend]
+      summary: 为体测记录添加附加项成绩
+      description: |
+        为指定体测记录增加某个附加项的测试成绩（如：坐位体前屈成绩、50 米跑成绩等）。
+
+        - 添加后可通过 `examExItems` 接口查询；
+        - 用于将体考成绩与体测记录进行绑定。
+      operationId: addExItem
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - apiKey
+                - examId
+                - type
+                - value
+              properties:
+                apiKey:
+                  type: string
+                  description: 门店 API Key。
+                examId:
+                  type: string
+                  description: 体测记录 ID。
+                type:
+                  type: string
+                  description: |
+                    附加项编码（`code` 字段），例如：  
+                    - `F1`：十米折返跑  
+                    - `Z`：坐位体前屈 等。
+                value:
+                  type: number
+                  format: float
+                  description: |
+                    项目测试成绩，具体单位由附加项定义中的 `unit` 字段决定（秒、米、次等）。
+      responses:
+        '200':
+          description: 添加成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericOperationResponse'
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  /OpenAPI!delExItem.msg:
+    post:
+      tags: [GymExtend]
+      summary: 删除体测记录关联的附加项成绩
+      description: |
+        删除体测记录中的某个附加项成绩，用于纠错或成绩作废等场景。
+      operationId: delExItem
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - apiKey
+                - examId
+                - type
+              properties:
+                apiKey:
+                  type: string
+                  description: 门店 API Key。
+                examId:
+                  type: string
+                  description: 体测记录 ID。
+                type:
+                  type: string
+                  description: 附加项编码。
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenericOperationResponse'
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  /OpenAPI!examExItems.msg:
+    get:
+      tags: [GymExtend]
+      summary: 查看体测记录的附加项成绩
+      description: |
+        查看指定体测记录下已绑定的所有附加项成绩（体考成绩），包括：
+
+        - 成绩值；
+        - 标准区间；
+        - 计算后的等级与文字评价；
+        - 得分、视频或图片地址等。
+      operationId: examExItems
+      parameters:
+        - name: apiKey
+          in: query
+          required: true
+          description: 门店 API Key。
+          schema:
+            type: string
+        - name: examId
+          in: query
+          required: true
+          description: 体测记录 ID。
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 返回附加项成绩列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExamExItemsResponse'
+        '401':
+          description: apiKey 无效
+        '500':
+          description: 服务器内部错误
+
+  # ============================================================
+  # 模块八：体测报告展示（H5 / 小程序）
+  # ============================================================
+
+  /body/mobile8.0.html:
+    get:
+      tags: [Reports]
+      summary: H5 移动端体测报告页面
+      description: |
+        H5 移动端体测报告展示页。
+
+        - 使用 `id` 参数来展示某次体测报告；
+        - 该页面会根据 `lang` 参数选择展示语言。
+      operationId: mobileReport
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: 体测报告唯一 ID（即体测记录 ID）。
+          schema:
+            type: string
+        - name: lang
+          in: query
+          required: false
+          description: |
+            语言代码：  
+            - `zh_CN`：简体中文（默认）；  
+            - 其他语言视平台支持情况而定。
+          schema:
+            type: string
+            default: zh_CN
+      responses:
+        '200':
+          description: HTML 页面内容
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /report/index.html:
+    get:
+      tags: [Reports]
+      summary: PC / 自适应体测报告页面
+      description: |
+        PC 端或自适应体测报告页面。
+
+        - 使用 `id` 参数展示体测报告；
+        - 会根据访问终端自动选择合适的展示方式。
+      operationId: pcReport
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: 体测报告唯一 ID。
+          schema:
+            type: string
+        - name: lang
+          in: query
+          required: false
+          description: 语言代码，默认 `zh`。
+          schema:
+            type: string
+            default: zh
+      responses:
+        '200':
+          description: HTML 页面内容
+          content:
+            text/html:
+              schema:
+                type: string
+
+  # ============================================================
+  # 模块九：扫码体测二维码载荷规则（非 HTTP 接口）
+  # ============================================================
+
+  /qr/scan-exam-payload:
+    post:
+      tags: [QR]
+      summary: 扫码体测二维码载荷示例（虚拟路径，仅用于规范说明）
+      description: |
+        **注意：本路径为文档说明用虚拟路径，并非实际可调用接口。**
+
+        扫码体测模式下，体测设备通过扫描二维码来获取体测人员信息。  
+        二维码中编码的字符串为 **JSON 对象**，推荐字段如下：
+
+        - `id`：体测记录唯一 ID（可选，用于指定已有记录）；  
+        - `name`：体测人姓名；  
+        - `phone`：电话或学号、卡号等自定义编号；  
+        - `age`：年龄；  
+        - `sex`：性别 `M` / `F`；  
+        - `customerId`：人员唯一编号，用于与甲方用户系统映射；  
+        - `height`：身高（对于无身高测量设备必填）。
+      operationId: scanExamPayloadDoc
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanExamQrPayload'
+      responses:
+        '200':
+          description: 示例，仅返回原样载荷
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanExamQrPayload'
+
+  # ============================================================
+  # 模块十：体测数据回调（仅描述回调格式）
+  # ============================================================
+
+components:
+
+  # ------------------------------------------------------------
+  # 通用响应对象
+  # ------------------------------------------------------------
+  schemas:
+
+    ApiResponseBase:
+      type: object
+      description: 通用响应基础结构。
+      properties:
+        STATUS:
+          type: boolean
+          description: |
+            接口状态：  
+            - `true`：接口调用成功；  
+            - `false`：接口调用失败。
+        CODE:
+          type: integer
+          description: |
+            错误码：  
+            - `0`：正常；  
+            - `100`：秘钥错误 / apiKey 无效；  
+            - `200`：账户名错误；  
+            - `300`：账户状态异常（冻结 / 未审批 / 停用等）；  
+            - `400`：密码错误；  
+            - `500`：内部错误；  
+            - 其他值：由具体接口定义。
+        INFO:
+          type: string
+          description: 接口返回备注信息，一般用于提示成功或具体错误原因。
+
+    GroupApiKeyResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          description: 集团账号 API Key 响应。
+          properties:
+            apiKey:
+              type: string
+              description: 集团账号对应的 API 密钥。
+            managerId:
+              type: string
+              description: 管理员编号，可用于获取该账号已授权的门店。
+
+    GymApiKeyResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          description: 单门店账号 API Key 响应。
+          properties:
+            apiKey:
+              type: string
+              description: 门店账号对应的 API 密钥。
+            id:
+              type: string
+              description: 门店编号 ID。
+            name:
+              type: string
+              description: 门店名称。
+
+    Gym:
+      type: object
+      description: 门店基础信息。
+      properties:
+        id:
+          type: string
+          description: 门店 ID。
+        gymName:
+          type: string
+          description: 门店名称。
+        address:
+          type: string
+          description: 门店详细地址。
+        city:
+          type: string
+          description: 门店所在城市。
+        province:
+          type: string
+          description: 门店所在省份。
+        admin:
+          type: string
+          description: 管理员姓名。
+        adminPhone:
+          type: string
+          description: 管理员手机号码。
+        loginName:
+          type: string
+          description: 门店登录账户名。
+        logo:
+          type: string
+          description: 门店 logo 文件路径。
+        state:
+          type: string
+          description: 门店状态（N 等具体含义以平台定义为准）。
+        gpsX:
+          type: number
+          format: float
+          description: 门店 GPS X 坐标。
+        gpsY:
+          type: number
+          format: float
+          description: 门店 GPS Y 坐标。
+        gmtCreate:
+          type: integer
+          format: int64
+          description: 创建时间（毫秒时间戳）。
+        gmtModify:
+          type: integer
+          format: int64
+          description: 修改时间（毫秒时间戳）。
+
+    GymListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          description: 门店列表响应。
+          properties:
+            total:
+              type: integer
+              description: 门店总数。
+            DATA:
+              type: array
+              description: 门店列表。
+              items:
+                $ref: '#/components/schemas/Gym'
+
+    # ------------------------------------------------------------
+    # 体测记录列表 & 明细
+    # ------------------------------------------------------------
+
+    ExamRecord:
+      type: object
+      description: |
+        体测记录基础信息及主要体测指标。
+
+        注意：部分字段为选测项目，在未测试的情况下不会返回。
+      properties:
+        id:
+          type: string
+          description: 体测 ID。
+        gymId:
+          oneOf:
+            - type: string
+            - type: integer
+          description: 门店编号。
+        name:
+          type: string
+          description: 体测人姓名。
+        age:
+          type: integer
+          description: 年龄。
+        sex:
+          type: string
+          description: 性别，`M` 男，`F` 女。
+          enum: [M, F]
+        phone:
+          type: string
+          description: 电话 / 学号 / 卡号等。
+        userId:
+          type: string
+          description: 用户 ID（平台内部唯一标识）。
+        deviceFrom:
+          type: string
+          description: 体测设备序列号。
+        gmtCreate:
+          type: integer
+          format: int64
+          description: 体测记录创建时间（毫秒时间戳）。
+        gmtModify:
+          type: integer
+          format: int64
+          description: 体测记录修改时间（毫秒时间戳）。
+
+        # 核心体成分指标
+        height:
+          type: number
+          format: float
+          description: 身高（cm）。
+        weight:
+          type: number
+          format: float
+          description: 体重（kg）。
+        bmi:
+          type: number
+          format: float
+          description: |
+            体质指数（Body Mass Index）。  
+            - 根据体重和身高计算，用于评估体重是否正常。
+        fat:
+          type: number
+          format: float
+          description: 体脂率（%）。
+        muscle:
+          type: number
+          format: float
+          description: 肌肉率（%）。
+        water:
+          type: number
+          format: float
+          description: 身体水分（%）。
+        protein:
+          type: number
+          format: float
+          description: 蛋白质含量（%）。
+        bone:
+          type: number
+          format: float
+          description: 骨量（kg）。
+        inFat:
+          type: number
+          format: float
+          description: 内脏脂肪等级。
+        subFat:
+          type: number
+          format: float
+          description: 皮下脂肪（%）。
+        bmr:
+          type: number
+          format: float
+          description: 基础代谢（kcal）。
+        bodyAge:
+          type: integer
+          description: 身体年龄（岁）。
+        bodyShape:
+          type: integer
+          description: |
+            形体判定：  
+            - `0`：隐形肥胖  
+            - `1`：偏胖  
+            - `2`：肥胖  
+            - `3`：偏瘦肌肉  
+            - `4`：标准型  
+            - `5`：非常肌肉  
+            - `6`：偏瘦  
+            - `7`：标准肌肉  
+            - `8`：运动不足
+        score:
+          type: integer
+          description: 体测综合评分。
+        perfectWeight:
+          type: number
+          format: float
+          description: 理想体重估算值（kg）。
+        weightControl:
+          type: number
+          format: float
+          description: 体重控制建议值（kg，负数表示建议减重）。
+        fatControl:
+          type: number
+          format: float
+          description: 体脂控制建议值（%）。
+        muscleControl:
+          type: number
+          format: float
+          description: 肌肉控制建议值（kg）。
+        wc:
+          type: number
+          format: float
+          description: 腰臀比（Waist-Hip Ratio）。
+
+        # 运动与能量目标相关
+        sportGoal:
+          type: number
+          format: float
+          description: 每日总运动目标（kcal）。
+        aerobicGoal:
+          type: number
+          format: float
+          description: 有氧运动每日目标（kcal）。
+        anaGoal:
+          type: number
+          format: float
+          description: 无氧运动每日目标（kcal）。
+        enduGoal:
+          type: number
+          format: float
+          description: 体能耐力每日运动目标（kcal）。
+        caloriesInput:
+          type: number
+          format: float
+          description: 推荐每日热量摄入（kcal）。
+
+        # 心肺功能 / 血压 / 血氧等选测指标
+        vitalCapacity:
+          type: number
+          format: float
+          description: 肺活量（ml）。
+        bloodMaxPressure:
+          type: integer
+          description: 收缩压（mmHg）。
+        bloodMinPressure:
+          type: integer
+          description: 舒张压（mmHg）。
+        restingHeartRate:
+          type: integer
+          description: 静息心率（次 / 分）。
+        heartFun:
+          type: integer
+          description: 心肺功能评级，0–5 分制，5 为满分。
+        bloodOxygen:
+          type: number
+          format: float
+          description: 血氧饱和度（%）。
+        sportLevel:
+          type: integer
+          description: 运动能力等级，0–5 分制（0 弱，5 强）。
+        sportSafeRisk:
+          type: integer
+          description: |
+            运动风险 / 血压风险等级，0–5 分制：  
+            - 2：正常无风险  
+            - 1：低血压风险  
+            - 3：一级高血压  
+            - 4：二级高血压  
+            - 5：三级高血压
+
+        # 视力（选测）
+        leftVision:
+          type: number
+          format: float
+          description: 左眼视力（小数）。
+        rightVision:
+          type: number
+          format: float
+          description: 右眼视力（小数）。
+
+        # 形体体态相关（选测）
+        bodyImage:
+          type: string
+          description: 正面体态照片路径，可通过文件接口访问。
+        sideImage:
+          type: string
+          description: 侧面体态照片路径。
+        postureRisk:
+          type: integer
+          description: 体态风险等级（综合评分，5 分制）。
+        bodyShapeRisk:
+          type: integer
+          description: 形体风险等级，0–5。
+        shoulderRisk:
+          type: integer
+          description: 高低肩风险等级，1–5。
+        humpbackRisk:
+          type: integer
+          description: 驼背风险等级，1–5，越高风险越大。
+        legRisk:
+          type: string
+          description: |
+            X / O 型腿风险：  
+            - 首字母为 `X` 或 `O` 表示风险类型；  
+            - 数字表示风险等级。
+        pelvisRisk:
+          type: integer
+          description: 骨盆前倾风险等级（负数表示后倾），1–5。
+        kneeRisk:
+          type: integer
+          description: 膝超伸风险等级，1–5。
+        headRisk:
+          type: integer
+          description: 头侧倾风险等级，1–5。
+        spineRisk:
+          type: integer
+          description: 脊柱风险等级，1–5。
+        frontHeadRisk:
+          type: integer
+          description: 头部前倾风险等级，1–5。
+        bodyDetect:
+          type: string
+          description: 正面形体体态骨骼点 JSON 字符串（包含各关键点坐标与置信度）。
+        sideBodyDetect:
+          type: string
+          description: 侧面形体体态骨骼点 JSON 字符串。
+
+        # 身体维度数据（围度 / 长度）
+        waist:
+          type: number
+          format: float
+          description: 腰围长度（cm）。
+        hips:
+          type: number
+          format: float
+          description: 臀围长度（cm）。
+        head:
+          type: number
+          format: float
+          description: 头部高度（cm）。
+        upperBody:
+          type: number
+          format: float
+          description: 上半身长度（cm）。
+        lowerBody:
+          type: number
+          format: float
+          description: 下半身长度（cm）。
+        shank:
+          type: number
+          format: float
+          description: 小腿长度（cm）。
+        thigh:
+          type: number
+          format: float
+          description: 大腿长度（cm）。
+        armSpan:
+          type: number
+          format: float
+          description: 臂展（cm）。
+        armDim:
+          type: number
+          format: float
+          description: 臂围（cm）。
+        thigh_dim:
+          type: number
+          format: float
+          description: 大腿维度（cm）。
+        shoulder_width:
+          type: number
+          format: float
+          description: 肩宽（cm）。
+        occipital_space:
+          type: number
+          format: float
+          description: 枕间距（cm）。
+        footLength:
+          type: number
+          format: float
+          description: 脚长（cm）。
+
+        # 8 电极数据（仅 8 电极设备返回）
+        muscleLeftArm:
+          type: number
+          format: float
+          description: 左上肢肌肉量（kg）。
+        muscleRightArm:
+          type: number
+          format: float
+          description: 右上肢肌肉量（kg）。
+        fatLeftArm:
+          type: number
+          format: float
+          description: 左上肢脂肪量（kg）。
+        fatRightArm:
+          type: number
+          format: float
+          description: 右上肢脂肪量（kg）。
+        muscleTrunk:
+          type: number
+          format: float
+          description: 躯干肌肉量（kg）。
+        fatTrunk:
+          type: number
+          format: float
+          description: 躯干脂肪量（kg）。
+        muscleLeftLeg:
+          type: number
+          format: float
+          description: 左下肢肌肉量（kg）。
+        muscleRightLeg:
+          type: number
+          format: float
+          description: 右下肢肌肉量（kg）。
+        fatLeftLeg:
+          type: number
+          format: float
+          description: 左下肢脂肪量（kg）。
+        fatRightLeg:
+          type: number
+          format: float
+          description: 右下肢脂肪量（kg）。
+
+        r20LeftArm:
+          type: number
+          format: float
+          description: 20kHz 左上肢阻抗。
+        r20LeftLeg:
+          type: number
+          format: float
+          description: 20kHz 左下肢阻抗。
+        r20RightArm:
+          type: number
+          format: float
+          description: 20kHz 右上肢阻抗。
+        r20RightLeg:
+          type: number
+          format: float
+          description: 20kHz 右下肢阻抗。
+        r20Trunk:
+          type: number
+          format: float
+          description: 20kHz 躯干阻抗。
+        r100LeftArm:
+          type: number
+          format: float
+          description: 100kHz 左上肢阻抗。
+        r100LeftLeg:
+          type: number
+          format: float
+          description: 100kHz 左下肢阻抗。
+        r100RightArm:
+          type: number
+          format: float
+          description: 100kHz 右上肢阻抗。
+        r100RightLeg:
+          type: number
+          format: float
+          description: 100kHz 右下肢阻抗。
+        r100Trunk:
+          type: number
+          format: float
+          description: 100kHz 躯干阻抗。
+
+    ExamListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          description: 体测记录列表响应。
+          properties:
+            DATA:
+              type: array
+              description: 体测记录数组。
+              items:
+                $ref: '#/components/schemas/ExamRecord'
+
+    ExamsCountResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          description: 体测记录数量统计响应。
+          properties:
+            DATA:
+              type: integer
+              description: 符合条件的体测记录数量。
+
+    # ------------------------------------------------------------
+    # 标准参数与成长曲线
+    # ------------------------------------------------------------
+
+    StandardRange:
+      type: object
+      description: 通用标准区间结构（少 / 多 / 标准等）。
+      properties:
+        age:
+          type: integer
+          description: 年龄（或保留字段）。
+        fewer:
+          type: number
+          format: float
+          description: 偏低值上限。
+        fewest:
+          type: number
+          format: float
+          description: 过低值上限。
+        more:
+          type: number
+          format: float
+          description: 偏高值下限。
+        most:
+          type: number
+          format: float
+          description: 过高值下限。
+        standard:
+          type: number
+          format: float
+          description: 标准参考值。
+
+    SegmentMap:
+      type: object
+      description: 节段数据标准，>100 表示偏高；<100 表示偏低。
+      properties:
+        muscleLeftArmRate:
+          type: number
+          format: float
+          description: 左手肌肉标准比率。
+        muscleRightArmRate:
+          type: number
+          format: float
+          description: 右手肌肉标准比率。
+        fatLeftArmRate:
+          type: number
+          format: float
+          description: 左手脂肪标准比率。
+        fatRightArmRate:
+          type: number
+          format: float
+          description: 右手脂肪标准比率。
+        muscleTrunkRate:
+          type: number
+          format: float
+          description: 躯干肌肉标准比率。
+        fatTrunkRate:
+          type: number
+          format: float
+          description: 躯干脂肪标准比率。
+        muscleLeftLegRate:
+          type: number
+          format: float
+          description: 左腿肌肉标准比率。
+        muscleRightLegRate:
+          type: number
+          format: float
+          description: 右腿肌肉标准比率。
+        fatLeftLegRate:
+          type: number
+          format: float
+          description: 左腿脂肪标准比率。
+        fatRightLegRate:
+          type: number
+          format: float
+          description: 右腿脂肪标准比率。
+
+    ExamDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          description: 单条体测详情与标准响应。
+          properties:
+            DATA:
+              $ref: '#/components/schemas/ExamRecord'
+            standard:
+              type: object
+              description: 各项数据的参照标准。
+              properties:
+                bmiStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                boneStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                visfatStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                bmrStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                subfatStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                waterStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                fatStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                proteinStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                whrStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                muscleStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                weightStandard:
+                  $ref: '#/components/schemas/StandardRange'
+                heightStandard:
+                  $ref: '#/components/schemas/StandardRange'
+            weightGrowthStandard:
+              type: array
+              description: |
+                体重成长趋势表（仅年龄 < 18 时有值）。  
+                每行数组代表 `[age, P3, P15, P50, P85, P97]`。
+              items:
+                type: array
+                items:
+                  type: number
+            heightGrowthStandard:
+              type: array
+              description: |
+                身高成长趋势表（仅年龄 < 18 时有值）。  
+                每行数组代表 `[age, P3, P15, P50, P85, P97]`。
+              items:
+                type: array
+                items:
+                  type: number
+            segmentMap:
+              $ref: '#/components/schemas/SegmentMap'
+
+    # ------------------------------------------------------------
+    # 设备状态
+    # ------------------------------------------------------------
+
+    DeviceState:
+      type: object
+      description: 体测设备运行状态。
+      properties:
+        deviceId:
+          type: string
+          description: 设备序列号。
+        deviceName:
+          type: string
+          description: 设备名称（例如：智能体测仪 K2）。
+        gmtCreate:
+          type: integer
+          format: int64
+          description: 激活时间（毫秒时间戳）。
+        gymId:
+          type: string
+          description: 门店编号。
+        gymName:
+          type: string
+          description: 门店名称。
+        service:
+          type: string
+          description: |
+            服务类型：  
+            - `S`：扫码付费模式；  
+            - `N`：普通模式。
+        state:
+          type: string
+          description: |
+            设备状态：  
+            - `B`：掉线；  
+            - `O`：在线，空闲状态；  
+            - `E`：设备故障；  
+            - `W`：待付款状态；  
+            - `R`：准备就绪。
+        type:
+          type: string
+          description: |
+            设备类型：  
+            - `H`：体测仪；  
+            - `D`：门禁；  
+            - `P`：私教运动仪；  
+            - `F`：人脸门禁。
+        price:
+          type: number
+          format: float
+          description: 单次使用价格（单位：元）。
+
+    DeviceStateResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            DATA:
+              $ref: '#/components/schemas/DeviceState'
+
+    GenericOperationResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+
+    # ------------------------------------------------------------
+    # 附加项（体考项目）相关
+    # ------------------------------------------------------------
+
+    GymExtendItem:
+      type: object
+      description: 门店可用的附加项定义。
+      properties:
+        code:
+          type: string
+          description: 附加项编码，例如 `F1`、`Z` 等。
+        name:
+          type: string
+          description: 项目名称，例如“十米折返跑”、“坐位体前屈”。
+        describe:
+          type: string
+          description: 项目描述。
+        sex:
+          type: string
+          description: |
+            适用性别：  
+            - `A`：全部；  
+            - `M`：男；  
+            - `F`：女。
+        ageStart:
+          type: integer
+          description: 适用年龄开始。
+        ageEnd:
+          type: integer
+          description: 适用年龄结束。
+        unit:
+          type: string
+          description: |
+            测试成绩单位，例如：秒、米、次等。
+        fewestTxt:
+          type: string
+          description: 等级描述——很差。
+        fewerTxt:
+          type: string
+          description: 等级描述——较差。
+        stdTxt:
+          type: string
+          description: 等级描述——一般 / 标准。
+        moreTxt:
+          type: string
+          description: 等级描述——较好。
+        mostTxt:
+          type: string
+          description: 等级描述——很好。
+        gmtCreate:
+          type: integer
+          format: int64
+          description: 创建时间。
+        gmtModify:
+          type: integer
+          format: int64
+          description: 修改时间。
+        isDeleted:
+          type: string
+          description: 是否删除标识，`n` 表示未删除。
+
+    GymExtendListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            DATA:
+              type: array
+              items:
+                $ref: '#/components/schemas/GymExtendItem'
+
+    ExamExItem:
+      type: object
+      description: 某次体测记录对应的附加项成绩。
+      properties:
+        examId:
+          type: string
+          description: 体测记录 ID。
+        type:
+          type: string
+          description: 附加项编码。
+        name:
+          type: string
+          description: 测试项目名称。
+        value:
+          type: number
+          format: float
+          description: 实际测试成绩。
+        score:
+          type: number
+          format: float
+          description: 得分。
+        level:
+          type: integer
+          description: 等级评价（1–5 级）。
+        levelTxt:
+          type: string
+          description: 等级文字评价（例如：很差、较差、一般、较好、很好）。
+        fewest:
+          type: number
+          format: float
+          description: 成绩下限（很差）。
+        fewer:
+          type: number
+          format: float
+          description: 成绩偏低阈值。
+        stdTxt:
+          type: string
+          description: 标准区间描述。
+        more:
+          type: number
+          format: float
+          description: 成绩偏高阈值。
+        most:
+          type: number
+          format: float
+          description: 成绩很高阈值。
+        video:
+          type: string
+          description: 若有录像或照片，存放资源路径。
+        gmtCreate:
+          type: integer
+          format: int64
+          description: 创建时间。
+        gmtModify:
+          type: integer
+          format: int64
+          description: 修改时间。
+        isDeleted:
+          type: string
+          description: 删除标识。
+
+    ExamExItemsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponseBase'
+        - type: object
+          properties:
+            DATA:
+              type: array
+              items:
+                $ref: '#/components/schemas/ExamExItem'
+
+    # ------------------------------------------------------------
+    # 扫码体测二维码载荷
+    # ------------------------------------------------------------
+
+    ScanExamQrPayload:
+      type: object
+      description: 扫码体测模式下二维码中编码的 JSON 对象结构。
+      properties:
+        id:
+          type: string
+          description: 体测记录唯一 ID（可选，用于更新已有记录）。
+        name:
+          type: string
+          description: 体测人姓名。
+        phone:
+          type: string
+          description: 电话 / 学号 / 卡号等自定义编号信息。
+        age:
+          type: integer
+          description: 年龄。
+        sex:
+          type: string
+          description: 性别，`M` 男，`F` 女。
+          enum: [M, F]
+        customerId:
+          type: string
+          description: 人员唯一编号（与甲方用户系统对应）。
+        height:
+          type: number
+          format: float
+          description: 身高（cm），无身高测量设备时需填写。
+
+    # ------------------------------------------------------------
+    # 体测回调数据（宅客 → 甲方）
+    # ------------------------------------------------------------
+
+    ExamCallbackPayload:
+      type: object
+      description: |
+        体测回调请求体结构。
+
+        注意：  
+        - 宅客平台在设备产生体测记录时，会向甲方配置的回调地址发送 POST 请求；  
+        - 回调参数名为 `examData`，内容为体测数据 JSON，格式与 `getExams` / `getExamById` 中的数据结构一致。
+      properties:
+        examData:
+          $ref: '#/components/schemas/ExamRecord'

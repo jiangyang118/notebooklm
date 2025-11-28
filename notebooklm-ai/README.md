@@ -111,12 +111,12 @@ DB_TYPE=sqlite
 DATABASE_URL=postgres://user:password@localhost:5432/notebooklm_ai
 
 # 向量数据库类型：pgvector / milvus / chroma / qdrant
-VECTOR_DB=pgvector
+VECTOR_DB=chroma
 
 # Milvus / Qdrant / Chroma 等连接配置（按需填写）
 MILVUS_URL=localhost:19530
 QDRANT_URL=http://localhost:6333
-CHROMA_DIR=./chroma-data
+CHROMA_URL=http://localhost:8000
 
 # 服务端口
 PORT=3001
@@ -235,4 +235,3 @@ MODEL_CHAT=o3-mini
 - Flow 管线：批量向量化、任务队列、进度查询
 - 更细粒度的引用与评分/重排（Rerank）
 - 前端导出能力（MD/JSON 一键导出）
-

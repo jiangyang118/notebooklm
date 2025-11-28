@@ -11,7 +11,7 @@
  *  - Top-K 搜索
  */
 
-import { QdrantClient } from "qdrant-node";
+import { QdrantClient } from "@qdrant/js-client-rest";
 
 const COLLECTION = "embeddings";
 const DIM = 1536;
@@ -74,4 +74,3 @@ export async function search(queryEmbedding, top_k = 5) {
     return [];
   }
 }
-

@@ -93,5 +93,4 @@ export async function embedDocument(req, res) {
   }
 }
 
-export { uploadDocument, listDocuments, getDocument, embedDocument };
-
+// Named exports already declared above; no re-export block to avoid duplicate export errors.
